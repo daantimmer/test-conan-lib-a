@@ -1,0 +1,43 @@
+name: Publish Conan Package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Add GitHub Packages remote
+        run: |
+          conan remote add github https://conan.pkg.github.com/${{ github.repository_owner }} --allowed-packages "*"
+
+      - name: Authenticate with GitHub Packages
+        run: |
+          conan remote login github ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Conan package
+        run: |
+          conan create . --build=missing -s build_type=Release -c tools.build:skip_test=True
+
+      - name: Upload package to GitHub Packages
+        run: |
+          conan upload conan-library-a/* --remote github --confirm
