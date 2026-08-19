@@ -1,12 +1,10 @@
-import os
-
 from conan import ConanFile
 from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 
 
 class ConanLibraryARecipe(ConanFile):
     name = "conan-library-a"
-    version = os.environ.get("CONAN_PACKAGE_VERSION", "0.1.0")
+    version = "0.1.0"
     package_type = "library"
 
     # Metadata
