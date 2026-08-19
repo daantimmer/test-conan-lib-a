@@ -1,0 +1,66 @@
+name: Cleanup Stale PR Conan Packages
+
+on:
+  schedule:
+    # Run weekly on Sundays at 02:00 UTC
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+
+jobs:
+  cleanup-stale:
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete package versions for closed PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: conan-library-a
+        run: |
+          # Fetch all package versions whose name contains "-pr."
+          versions_json=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/user/packages/conan/${PACKAGE_NAME}/versions" \
+            --paginate \
+            --jq '[.[] | select(.name | test("pr\\.[0-9]+")) | {id: .id, name: .name}]')
+
+          if [ "$versions_json" = "[]" ] || [ -z "$versions_json" ]; then
+            echo "No PR package versions found."
+            exit 0
+          fi
+
+          echo "$versions_json" | jq -c '.[]' | while read -r entry; do
+            version_id=$(echo "$entry" | jq -r '.id')
+            version_name=$(echo "$entry" | jq -r '.name')
+
+            # Extract PR number from version name (e.g. "0.0.0-pr.42")
+            pr_number=$(echo "$version_name" | grep -oP '(?<=pr\.)\d+')
+            if [ -z "$pr_number" ]; then
+              echo "Could not extract PR number from '${version_name}', skipping."
+              continue
+            fi
+
+            # Check if the PR is still open
+            pr_state=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPO}/pulls/${pr_number}" \
+              --jq '.state' 2>/dev/null || echo "not_found")
+
+            if [ "$pr_state" = "open" ]; then
+              echo "PR #${pr_number} is still open, keeping version '${version_name}'."
+            else
+              echo "PR #${pr_number} is '${pr_state}', deleting version id=${version_id} ('${version_name}')."
+              gh api \
+                --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "/user/packages/conan/${PACKAGE_NAME}/versions/${version_id}"
+            fi
+          done
+
+          echo "Stale PR package cleanup complete."

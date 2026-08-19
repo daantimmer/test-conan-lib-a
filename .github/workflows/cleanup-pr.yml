@@ -1,0 +1,46 @@
+name: Cleanup PR Conan Package
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup-pr:
+    # Only run for PRs from the same repository (not forks)
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      packages: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete PR package version from GitHub Packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: conan-library-a
+          VERSION_TAG: "0.0.0-pr.${{ github.event.pull_request.number }}"
+        run: |
+          # List all versions of the package and find the one matching this PR
+          versions=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/user/packages/conan/${PACKAGE_NAME}/versions" \
+            --paginate \
+            --jq '.[] | select(.name | contains("pr.'${PR_NUMBER}'")) | .id')
+
+          if [ -z "$versions" ]; then
+            echo "No package version found for PR #${PR_NUMBER}, nothing to delete."
+            exit 0
+          fi
+
+          for version_id in $versions; do
+            echo "Deleting package version id=${version_id} (${VERSION_TAG})"
+            gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              "/user/packages/conan/${PACKAGE_NAME}/versions/${version_id}"
+          done
+
+          echo "Cleanup complete for PR #${PR_NUMBER}."
